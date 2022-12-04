@@ -1,0 +1,19 @@
+[0m[[0m[0mdebug[0m] [0m[0mPackaging /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/sparkapp_2.12-1.0.0.jar ...[0m
+[0m[[0m[0mdebug[0m] [0m[0mInput file mappings:[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main$FlightSchedule$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main$FlightSchedule$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main$FlightSchedule.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main$FlightSchedule.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main$FlightInfo$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main$FlightInfo$.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	upm/bd/Main$FlightInfo.class[0m
+[0m[[0m[0mdebug[0m] [0m[0m	  /Users/saavedraandrei/Desktop/sparkapp/target/scala-2.12/classes/upm/bd/Main$FlightInfo.class[0m
+[0m[[0m[0mdebug[0m] [0m[0mDone packaging.[0m
