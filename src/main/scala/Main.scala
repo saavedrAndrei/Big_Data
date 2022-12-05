@@ -1,60 +1,90 @@
 package upm.bd
-import org.apache.spark.sql.{Dataset, SparkSession}
+import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.spark.SparkConf
 import org.apache.spark.SparkContext
 import org.apache.spark.SparkContext._
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.catalyst.encoders.ExpressionEncoder
+import org.apache.spark.sql.functions.col
+import org.apache.spark.sql.types.IntegerType
+import org.apache.spark.sql.types._
+
+
 
 object Main {
 
-  case class FlightSchedule(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
-                            CRSDepTime:String, ArrTime:Int, CRSArrTime:String, UniqueCarrier:String,
-                            FlightNum:Int, TailNum:String, ActualElapsedTime:Int, CRSElapsedTime:Int,
-                            AirTime:String, ArrDelay:String, DepDelay:String, Origin:String, Dest:String,
-                            Distance:Int, TaxiIn:String, TaxiOut:String, Cancelled:Int, CancellationCode:String,
-                            Diverted:Int, CarrierDelay:String,WeatherDelay:String, NASDelay:String, SecurityDelay:String,
-                            LateAircraftDelay:String)
-
-  case class FlightInfo(flight: Int, duration: String)
-
   def main(args: Array[String]): Unit = {
 
-    if (args.length > 0) {
+    Logger.getLogger("org").setLevel(Level.WARN)
 
-      Logger.getLogger("org").setLevel(Level.WARN)
+    val spark = SparkSession
+      .builder
+      .appName("sparkApp")
+      .master("local[*]")
+      .getOrCreate()
 
-      val spark = SparkSession
-        .builder
-        .appName("sparkApp")
-        .master("local[*]")
-        .getOrCreate()
+    val customSchema = StructType(Array(
+      StructField("Year", IntegerType, true),
+      StructField("Month", IntegerType, true),
+      StructField("DayofMonth", IntegerType, true),
+      StructField("DayofWeek", IntegerType, true),
+      StructField("DepTime", IntegerType, true),
+      StructField("CRSDepTime", IntegerType, true),
+      StructField("ArrTime", IntegerType, true),
+      StructField("CRSArrTime", IntegerType, true),
+      StructField("UniqueCarrier", StringType, true),
+      StructField("FlightNum", IntegerType, true),
+      StructField("TailNum", StringType, true),
+      StructField("ActualElapsedTime", IntegerType, true),
+      StructField("CRSElapsedTime", IntegerType, true),
+      StructField("AirTime", StringType, true),
+      StructField("ArrDelay", IntegerType, true),
+      StructField("DepDelay", IntegerType, true),
+      StructField("Origin", StringType, true),
+      StructField("Dest", StringType, true),
+      StructField("Distance", IntegerType, true),
+      StructField("TaxiIn", IntegerType, true),
+      StructField("TaxiOut", IntegerType, true),
+      StructField("Cancelled", IntegerType, true),
+      StructField("CancellationCode", IntegerType, true),
+      StructField("Diverted", IntegerType, true),
+      StructField("CarrierDelay", IntegerType, true),
+      StructField("WeatherDelay", IntegerType, true),
+      StructField("NASDelay", IntegerType, true),
+      StructField("SecurityDelay", IntegerType, true),
+      StructField("LateAircraftDelay", IntegerType, true))
+    )
 
-      val datasetPath: String = args(0)
+    import spark.implicits._
+    val inputDataset = spark.read
+      .option("header", "true")
+      .schema(customSchema)
+      .csv("data/1987-1.csv")
 
-      import spark.implicits._
-      val inputDataset = spark.read
-        .option("header", "true")
-        .option("inferSchema", "true")
-        .csv(datasetPath)
+    inputDataset.printSchema()
 
-      inputDataset.printSchema()
+    val subset1 = inputDataset
+      .filter("Cancelled == 0")
+      .select(
+        "Year",
+        "Month",
+        "DayofMonth",
+        "DayofWeek",
+        "DepTime",
+        "CRSDepTime",
+        "CRSArrTime",
+        "FlightNum",
+        "CRSElapsedTime",
+        "ArrDelay",
+        "DepDelay",
+        "Distance",
+        "Cancelled"
+      )
 
-    }
+    subset1.printSchema()
+    subset1.show()
 
   }
-  //
-  //  def makeFlightInfo(schedules: Dataset[FlightSchedule]): Dataset[FlightInfo] = {
-  //    implicit val enc: ExpressionEncoder[FlightInfo] = ExpressionEncoder[FlightInfo]
-  //    schedules.map(s => existingTransformationFunction(s))
-  //  }
-  //
-  //  def existingTransformationFunction(flightSchedule: FlightSchedule): FlightInfo = {
-  //    val duration = (flightSchedule.DepTime - flightSchedule.ArrTime) / 60 / 60
-  //    FlightInfo(flightSchedule.FlightNum, s"$duration hrs")
-  //  }
-
-
 
 }
 
