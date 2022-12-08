@@ -1,12 +1,17 @@
 package upm.bd
 import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.log4j.{Level, Logger}
-import org.apache.spark.sql.types.IntegerType
 import org.apache.spark.sql.types._
-import org.apache.spark.ml.regression.LinearRegression
 import org.apache.spark.ml.feature.VectorAssembler
-
-
+import org.apache.spark.ml.regression.{DecisionTreeRegressor, GBTRegressor, LinearRegression, RandomForestRegressor}
+import org.apache.spark.ml.evaluation.RegressionEvaluator
+import org.apache.spark.ml.{Pipeline, PipelineModel}
+import org.apache.spark.ml.feature.{HashingTF, Tokenizer}
+import org.apache.spark.ml.linalg.Vector
+import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
+import org.apache.spark.mllib.evaluation.RegressionMetrics
+import org.apache.spark.sql.Row
+import org.apache.log4j.LogManager
 object Main {
 
   case class dataSchema(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
@@ -86,53 +91,75 @@ object Main {
     val subset2 = subset1.drop("Cancelled")
     val subset3 = subset2.withColumnRenamed("ArrDelay","label")
 
-    val assembler = new VectorAssembler()
-      .setInputCols(Array(
-        "Year",
-        "Month",
-        "DayofMonth",
-        "DepTime",
-        "CRSDepTime",
-        "CRSArrTime",
-        "FlightNum",
-        "CRSElapsedTime",
-        "DepDelay",
-        "Distance"
-      ))
-      .setOutputCol("features")
 
-    val df = assembler.transform(subset3)
-      .select("label", "features")
+    val subset4 = subset3.na.drop()
 
-    println(df)
-
-    val trainTest = df.randomSplit(Array(0.8, 0.2))
+    val trainTest = subset4.randomSplit(Array(0.8, 0.2))
     val trainingDF = trainTest(0)
     val testDF = trainTest(1)
 
-    println(trainingDF)
-    println(testDF)
-
+    def onlyFeatureCols(c: String): Boolean = !(c matches "label")
+    val featureCols = trainingDF.columns
+      .filter(onlyFeatureCols)
+    val assembler = new VectorAssembler()
+      .setInputCols(featureCols)
+      .setOutputCol("features")
     val linear = new LinearRegression()
+      .setFeaturesCol("features")
+      .setLabelCol("label")
       .setRegParam(0.3)
       .setElasticNetParam(0.8)
       .setMaxIter(100)
       .setTol(1E-6)
+    val pipeline = new Pipeline()
+      .setStages(Array(assembler,linear))
 
-    println(linear)
-    val model = linear.fit(trainingDF)
-    println(model)
+    val lr = new LinearRegression()
+      .setMaxIter(10)
 
-//    val fullPredictions =  model.transform(testDF).cache()
+    val paramGrid = new ParamGridBuilder()
+      .addGrid(lr.regParam, Array(0.1, 0.01))
+      .addGrid(lr.fitIntercept)
+      .addGrid(lr.elasticNetParam, Array(0.0, 0.5, 1.0))
+      .build()
+
+    val cv = new CrossValidator()
+      .setEstimator(pipeline)
+      .setEvaluator(new RegressionEvaluator)
+      .setEstimatorParamMaps(paramGrid)
+      .setNumFolds(3)
+
+    val cvModel = cv.fit(trainingDF)
+
+    val trainPredictionsAndLabels = cvModel.transform(trainingDF).select("label", "prediction")
+      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
+
+    val testPredictionsAndLabels = cvModel.transform(testDF).select("label", "prediction")
+      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
+
+    val trainRegressionMetrics = new RegressionMetrics(trainPredictionsAndLabels)
+    val testRegressionMetrics = new RegressionMetrics(testPredictionsAndLabels)
+
+    val bestModel = cvModel.bestModel.asInstanceOf[PipelineModel]
+
+    val log = LogManager.getRootLogger
+
+    val output = "\n=====================================================================\n" +
+      "=====================================================================\n" +
+      s"Training data RMSE = ${trainRegressionMetrics.rootMeanSquaredError}\n" +
+      "=====================================================================\n" +
+      s"Test data RMSE = ${testRegressionMetrics.rootMeanSquaredError}\n" +
+      "=====================================================================\n" +
+      s"Best Model = ${bestModel}"
+
+    log.info(output)
+//    val predictions =  model.transform(testDF).cache()
 //
-//    println(fullPredictions)
-
-//    val evaluation = fullPredictions.select("prediction", "ArrDelay").collect()
+//    val evaluation=predictions.select("prediction","label").collect()
 //
-//    for (prediction <- evaluation) {
-//      println(prediction)
+//    for(prediction<-evaluation){
+//    println(prediction)
 //    }
-
 
     spark.stop()
   }
