@@ -3,11 +3,9 @@ import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.types._
 import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.regression.{DecisionTreeRegressor, GBTRegressor, LinearRegression, RandomForestRegressor}
+import org.apache.spark.ml.regression.{LinearRegression}
 import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
-import org.apache.spark.ml.feature.{HashingTF, Tokenizer}
-import org.apache.spark.ml.linalg.Vector
 import org.apache.spark.ml.tuning.{CrossValidator, ParamGridBuilder}
 import org.apache.spark.mllib.evaluation.RegressionMetrics
 import org.apache.spark.sql.Row
@@ -17,7 +15,7 @@ object Main {
   case class dataSchema(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
                             CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
                             FlightNum:Int, TailNum: String, ActualElapsedTime:Int, CRSElapsedTime:Int,
-                            AirTime: String, ArrDelay:Int, DepDelay: Int, Origin:String, Dest:String,
+                            AirTime: String, ArrDelay:Double, DepDelay: Int, Origin:String, Dest:String,
                             Distance: Int, TaxiIn:Int, TaxiOut:Int, Cancelled: Int, CancellationCode:Int,
                             Diverted: Int, CarrierDelay:Int, WeatherDelay:Int, NASDelay:Int, SecurityDelay:Int,
                             LateAircraftDelay:Int)
@@ -48,7 +46,7 @@ object Main {
       .add("ActualElapsedTime", IntegerType, true)
       .add("CRSElapsedTime", IntegerType, true)
       .add("AirTime", StringType, true)
-      .add("ArrDelay", IntegerType, true)
+      .add("ArrDelay", DoubleType, true)
       .add("DepDelay", IntegerType, true)
       .add("Origin", StringType, true)
       .add("Dest", StringType, true)
@@ -87,11 +85,8 @@ object Main {
         "Distance",
         "Cancelled"
       )
-
     val subset2 = subset1.drop("Cancelled")
     val subset3 = subset2.withColumnRenamed("ArrDelay","label")
-
-
     val subset4 = subset3.na.drop()
 
     val trainTest = subset4.randomSplit(Array(0.8, 0.2))
@@ -114,22 +109,22 @@ object Main {
     val pipeline = new Pipeline()
       .setStages(Array(assembler,linear))
 
-    val lr = new LinearRegression()
-      .setMaxIter(10)
-
     val paramGrid = new ParamGridBuilder()
-      .addGrid(lr.regParam, Array(0.1, 0.01))
-      .addGrid(lr.fitIntercept)
-      .addGrid(lr.elasticNetParam, Array(0.0, 0.5, 1.0))
+      .addGrid(linear.regParam, Array(0.1, 0.01))
+      .addGrid(linear.fitIntercept)
+      .addGrid(linear.elasticNetParam, Array(0.0, 0.5, 1.0))
       .build()
 
     val cv = new CrossValidator()
       .setEstimator(pipeline)
       .setEvaluator(new RegressionEvaluator)
       .setEstimatorParamMaps(paramGrid)
-      .setNumFolds(3)
+      .setNumFolds(5)
 
     val cvModel = cv.fit(trainingDF)
+
+
+
 
     val trainPredictionsAndLabels = cvModel.transform(trainingDF).select("label", "prediction")
       .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
@@ -140,26 +135,24 @@ object Main {
     val trainRegressionMetrics = new RegressionMetrics(trainPredictionsAndLabels)
     val testRegressionMetrics = new RegressionMetrics(testPredictionsAndLabels)
 
-    val bestModel = cvModel.bestModel.asInstanceOf[PipelineModel]
-
     val log = LogManager.getRootLogger
 
+    val results = cvModel.transform(testDF)
+      .select("label", "prediction")
+      .collect()
+      .foreach { case Row(label: Double, prediction: Double) =>
+        println(s"--> label=$label, prediction=$prediction")
+      }
+
+    log.info(results)
+
     val output = "\n=====================================================================\n" +
-      "=====================================================================\n" +
       s"Training data RMSE = ${trainRegressionMetrics.rootMeanSquaredError}\n" +
       "=====================================================================\n" +
       s"Test data RMSE = ${testRegressionMetrics.rootMeanSquaredError}\n" +
-      "=====================================================================\n" +
-      s"Best Model = ${bestModel}"
+      "=====================================================================\n"
 
     log.info(output)
-//    val predictions =  model.transform(testDF).cache()
-//
-//    val evaluation=predictions.select("prediction","label").collect()
-//
-//    for(prediction<-evaluation){
-//    println(prediction)
-//    }
 
     spark.stop()
   }
