@@ -3,7 +3,7 @@ import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.types._
 import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.regression.LinearRegression
+import org.apache.spark.ml.regression.{LinearRegression}
 import org.apache.spark.ml.feature.{OneHotEncoder, StringIndexer}
 import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
@@ -13,17 +13,16 @@ import org.apache.spark.sql.Row
 import org.apache.log4j.LogManager
 import org.apache.spark.ml.feature.Imputer
 import org.apache.spark.ml.feature.StandardScaler
-import upm.bd.Prueba.dataSchema
 
-object Main {
+object Prueba {
 
   case class dataSchema(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
-                            CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
-                            FlightNum:Int, TailNum: String, ActualElapsedTime:Int, CRSElapsedTime:Int,
-                            AirTime: String, ArrDelay:Double, DepDelay: Int, Origin:String, Dest:String,
-                            Distance: Int, TaxiIn:Int, TaxiOut:Int, Cancelled: Int, CancellationCode:Int,
-                            Diverted: Int, CarrierDelay:Int, WeatherDelay:Int, NASDelay:Int, SecurityDelay:Int,
-                            LateAircraftDelay:Int)
+                        CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
+                        FlightNum:Int, TailNum: String, ActualElapsedTime:Int, CRSElapsedTime:Int,
+                        AirTime: String, ArrDelay:Double, DepDelay: Int, Origin:String, Dest:String,
+                        Distance: Int, TaxiIn:Int, TaxiOut:Int, Cancelled: Int, CancellationCode:Int,
+                        Diverted: Int, CarrierDelay:Int, WeatherDelay:Int, NASDelay:Int, SecurityDelay:Int,
+                        LateAircraftDelay:Int)
 
   def main(args: Array[String]): Unit = {
 
@@ -70,7 +69,7 @@ object Main {
     val inputDataset = spark.read
       .option("header", "true")
       .schema(customSchema)
-      .csv("data/1987-8.csv")
+      .csv("data/1987-11.csv")
       .as[dataSchema]
 
     val subset1 = inputDataset
@@ -149,14 +148,13 @@ object Main {
 
     val cleaning_02 = model_preprocessed.drop("UniqueCarrier")
 
-    val subset4 = cleaning_02.withColumnRenamed("ArrDelay_imputed", "label")
+    val subset4 = cleaning_02.withColumnRenamed("ArrDelay_imputed","label")
 
     val trainTest = subset4.randomSplit(Array(0.8, 0.2))
     val trainingDF = trainTest(0)
     val testDF = trainTest(1)
 
     def onlyFeatureCols(c: String): Boolean = !(c matches "label")
-
     val featureCols = trainingDF.columns
       .filter(onlyFeatureCols)
     val assembler = new VectorAssembler()
@@ -218,6 +216,69 @@ object Main {
       "=====================================================================\n"
 
     log.info(output)
+
+    //    println("\n=================4====================================================\n")
+//    subset4.show()
+//    println("=====================================================================\n")
+
+
+//
+//    val trainTest = subset3.randomSplit(Array(0.8, 0.2))
+//    val trainingDF = trainTest(0)
+//    val testDF = trainTest(1)
+//
+//
+//
+//    val paramGrid = new ParamGridBuilder()
+//      .addGrid(linear.regParam, Array(0.1, 0.01))
+//      .addGrid(linear.fitIntercept)
+//      .addGrid(linear.elasticNetParam, Array(0.0, 0.5, 1.0))
+//      .build()
+//
+//    val df_transformed = pipeline.fit(trainingDF).transform(trainingDF)
+//    println("\n=====================================================================\n")
+//    df_transformed.show()
+//    println("=====================================================================\n")
+//
+//    val cv = new CrossValidator()
+//      .setEstimator(pipeline)
+//      .setEvaluator(new RegressionEvaluator)
+//      .setEstimatorParamMaps(paramGrid)
+//      .setNumFolds(2)
+//
+//    val cvModel = cv.fit(df_transformed)
+//
+////    val resultModels = cvModel.transform(df_transformed)
+//
+//
+//    val trainPredictionsAndLabels = cvModel.transform(df_transformed).select("label", "prediction")
+//      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
+//
+//    val testPredictionsAndLabels = cvModel.transform(testDF).select("label", "prediction")
+//      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
+//
+//    val trainRegressionMetrics = new RegressionMetrics(trainPredictionsAndLabels)
+//    val testRegressionMetrics = new RegressionMetrics(testPredictionsAndLabels)
+//
+//    val log = LogManager.getRootLogger
+//
+//    val results = cvModel.transform(testDF)
+//      .select("label", "prediction")
+//      .collect()
+//      .foreach { case Row(label: Double, prediction: Double) =>
+//        println(s"--> label=$label, prediction=$prediction")
+//      }
+//
+//    log.info(results)
+//
+//    val output = "\n=====================================================================\n" +
+//      s"Training data RMSE = ${trainRegressionMetrics.rootMeanSquaredError}\n" +
+//      "=====================================================================\n" +
+//      s"Test data RMSE = ${testRegressionMetrics.rootMeanSquaredError}\n" +
+//      "=====================================================================\n"
+//
+//    log.info(output)
+//    log.info(featureCols)
 
     spark.stop()
   }
