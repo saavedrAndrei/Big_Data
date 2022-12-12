@@ -3,7 +3,7 @@ import org.apache.spark.sql.{DataFrame, Dataset, SparkSession}
 import org.apache.log4j.{Level, Logger}
 import org.apache.spark.sql.types._
 import org.apache.spark.ml.feature.VectorAssembler
-import org.apache.spark.ml.regression.{LinearRegression}
+import org.apache.spark.ml.regression.{LinearRegression,RandomForestRegressor}
 import org.apache.spark.ml.feature.{OneHotEncoder, StringIndexer}
 import org.apache.spark.ml.evaluation.RegressionEvaluator
 import org.apache.spark.ml.{Pipeline, PipelineModel}
@@ -13,8 +13,56 @@ import org.apache.spark.sql.Row
 import org.apache.log4j.LogManager
 import org.apache.spark.ml.feature.Imputer
 import org.apache.spark.ml.feature.StandardScaler
+import org.apache.spark.ml.Estimator
+import org.apache.spark.ml.Model
+import org.apache.spark.ml.param.Param
+import org.apache.spark.ml.param.ParamMap
+import org.apache.spark.ml.param.Params
+import org.apache.spark.ml.util.Identifiable
+import org.apache.spark.sql.types.StructType
+
 
 object Prueba {
+
+
+  trait DelegatingEstimatorModelParams extends Params {
+    final val selectedEstimator = new Param[Int](this, "selectedEstimator", "The selected estimator")
+  }
+
+  class DelegatingEstimator private(override val uid: String, delegates: Array[Estimator[_]]) extends Estimator[DelegatingEstimatorModel] with DelegatingEstimatorModelParams {
+    private def this(estimators: Array[Estimator[_]]) = this(Identifiable.randomUID("delegating-estimator"), estimators)
+
+    def this(estimator1: Estimator[_], estimator2: Estimator[_], estimators: Estimator[_]*) = {
+      this((Seq(estimator1, estimator2) ++ estimators).toArray)
+    }
+
+    setDefault(selectedEstimator -> 0)
+
+    override def fit(dataset: Dataset[_]): DelegatingEstimatorModel = {
+      val estimator = delegates(getOrDefault(selectedEstimator))
+      val model = estimator.fit(dataset).asInstanceOf[Model[_]]
+      new DelegatingEstimatorModel(uid, model)
+    }
+
+    override def copy(extra: ParamMap): Estimator[DelegatingEstimatorModel] = {
+      val that = new DelegatingEstimator(uid, delegates)
+      copyValues(that, extra)
+    }
+
+    override def transformSchema(schema: StructType): StructType = {
+      // All delegates are assumed to perform the same schema transformation,
+      // so we can simply select the first one:
+      delegates(0).transformSchema(schema)
+    }
+  }
+
+  class DelegatingEstimatorModel(override val uid: String, val delegate: Model[_]) extends Model[DelegatingEstimatorModel] with DelegatingEstimatorModelParams {
+    def copy(extra: ParamMap): DelegatingEstimatorModel = new DelegatingEstimatorModel(uid, delegate.copy(extra).asInstanceOf[Model[_]])
+
+    def transform(dataset: Dataset[_]): DataFrame = delegate.transform(dataset)
+
+    def transformSchema(schema: StructType): StructType = delegate.transformSchema(schema)
+  }
 
   case class dataSchema(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
                         CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
@@ -69,7 +117,7 @@ object Prueba {
     val inputDataset = spark.read
       .option("header", "true")
       .schema(customSchema)
-      .csv("data/1987-11.csv")
+      .csv("data/1987.csv")
       .as[dataSchema]
 
     val subset1 = inputDataset
@@ -86,6 +134,7 @@ object Prueba {
         "ArrDelay",
         "DepDelay",
         "Distance",
+        "TaxiOut",
         "Cancelled"
       )
     val subset2 = subset1.drop("Cancelled")
@@ -102,6 +151,7 @@ object Prueba {
         "ArrDelay",
         "DepDelay",
         "Distance",
+        "TaxiOut"
       ))
       .setOutputCols(Array(
         "Year_imputed",
@@ -114,6 +164,7 @@ object Prueba {
         "ArrDelay_imputed",
         "DepDelay_imputed",
         "Distance_imputed",
+        "TaxiOut_imputed"
       ))
       .setStrategy("mean")
 
@@ -126,12 +177,12 @@ object Prueba {
       "CRSDepTime",
       "CRSArrTime",
       "CRSElapsedTime",
-      "ArrDelay",
+      "label",
       "DepDelay",
       "Distance",
+      "TaxiOut"
     )
     val model_categorical_imputer = cleaning_01.na.drop()
-
 
     val indexer = new StringIndexer()
       .setInputCol("UniqueCarrier")
@@ -148,13 +199,28 @@ object Prueba {
 
     val cleaning_02 = model_preprocessed.drop("UniqueCarrier")
 
+    cleaning_02.printSchema()
+    cleaning_02.show()
+
     val subset4 = cleaning_02.withColumnRenamed("ArrDelay_imputed","label")
 
-    val trainTest = subset4.randomSplit(Array(0.8, 0.2))
+    subset4.createOrReplaceTempView("view")
+    val subset5 = spark.sql(
+      "select Year_imputed, Month_imputed, DayofMonth_imputed,INT(substring(lpad(DepTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(DepTime_imputed,4,0), 3, 2)) " +
+        "as DepTime_conv,INT(substring(lpad(CRSDepTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(CRSDepTime_imputed,4,0), 3, 2)) as " +
+        "CRSDepTime_conv, INT(substring(lpad(CRSArrTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(CRSArrTime_imputed,4,0), 3, 2)) as " +
+        "CRSArrTime_conv,CRSElapsedTime_imputed, label, DepDelay_imputed, Distance_imputed, UniqueCarrierIndex, UniqueCarrier_vector from view"
+    )
+
+    subset5.printSchema()
+    subset5.show()
+
+    val trainTest = subset5.randomSplit(Array(0.8, 0.2))
     val trainingDF = trainTest(0)
     val testDF = trainTest(1)
 
     def onlyFeatureCols(c: String): Boolean = !(c matches "label")
+
     val featureCols = trainingDF.columns
       .filter(onlyFeatureCols)
     val assembler = new VectorAssembler()
@@ -170,15 +236,19 @@ object Prueba {
       .setElasticNetParam(0.8)
       .setMaxIter(100)
       .setTol(1E-6)
+    val rf = new RandomForestRegressor()
+      .setLabelCol("label")
+      .setFeaturesCol("scaledFeatures")
     val pipeline_model = new Pipeline()
       .setStages(Array(
         assembler,
         scaler,
         linear))
+
+    val delegatingEstimator = new DelegatingEstimator(linear, rf)
+
     val paramGrid = new ParamGridBuilder()
-      .addGrid(linear.regParam, Array(0.1, 0.01))
-      .addGrid(linear.fitIntercept)
-      .addGrid(linear.elasticNetParam, Array(0.0, 0.5, 1.0))
+      .addGrid(delegatingEstimator.selectedEstimator, Array(0, 1))
       .build()
 
     val cv = new CrossValidator()
@@ -189,96 +259,10 @@ object Prueba {
 
     val cvModel = cv.fit(trainingDF)
 
-    val trainPredictionsAndLabels = cvModel.transform(trainingDF).select("label", "prediction")
-      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
-
-    val testPredictionsAndLabels = cvModel.transform(testDF).select("label", "prediction")
-      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
-
-    val trainRegressionMetrics = new RegressionMetrics(trainPredictionsAndLabels)
-    val testRegressionMetrics = new RegressionMetrics(testPredictionsAndLabels)
+    val bestModel = cvModel.bestModel.asInstanceOf[DelegatingEstimatorModel].delegate
 
     val log = LogManager.getRootLogger
-
-    val results = cvModel.transform(testDF)
-      .select("label", "prediction")
-      .collect()
-      .foreach { case Row(label: Double, prediction: Double) =>
-        println(s"--> label=$label, prediction=$prediction")
-      }
-
-    log.info(results)
-
-    val output = "\n=====================================================================\n" +
-      s"Training data RMSE = ${trainRegressionMetrics.rootMeanSquaredError}\n" +
-      "=====================================================================\n" +
-      s"Test data RMSE = ${testRegressionMetrics.rootMeanSquaredError}\n" +
-      "=====================================================================\n"
-
-    log.info(output)
-
-    //    println("\n=================4====================================================\n")
-//    subset4.show()
-//    println("=====================================================================\n")
-
-
-//
-//    val trainTest = subset3.randomSplit(Array(0.8, 0.2))
-//    val trainingDF = trainTest(0)
-//    val testDF = trainTest(1)
-//
-//
-//
-//    val paramGrid = new ParamGridBuilder()
-//      .addGrid(linear.regParam, Array(0.1, 0.01))
-//      .addGrid(linear.fitIntercept)
-//      .addGrid(linear.elasticNetParam, Array(0.0, 0.5, 1.0))
-//      .build()
-//
-//    val df_transformed = pipeline.fit(trainingDF).transform(trainingDF)
-//    println("\n=====================================================================\n")
-//    df_transformed.show()
-//    println("=====================================================================\n")
-//
-//    val cv = new CrossValidator()
-//      .setEstimator(pipeline)
-//      .setEvaluator(new RegressionEvaluator)
-//      .setEstimatorParamMaps(paramGrid)
-//      .setNumFolds(2)
-//
-//    val cvModel = cv.fit(df_transformed)
-//
-////    val resultModels = cvModel.transform(df_transformed)
-//
-//
-//    val trainPredictionsAndLabels = cvModel.transform(df_transformed).select("label", "prediction")
-//      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
-//
-//    val testPredictionsAndLabels = cvModel.transform(testDF).select("label", "prediction")
-//      .map { case Row(label: Double, prediction: Double) => (label, prediction) }.rdd
-//
-//    val trainRegressionMetrics = new RegressionMetrics(trainPredictionsAndLabels)
-//    val testRegressionMetrics = new RegressionMetrics(testPredictionsAndLabels)
-//
-//    val log = LogManager.getRootLogger
-//
-//    val results = cvModel.transform(testDF)
-//      .select("label", "prediction")
-//      .collect()
-//      .foreach { case Row(label: Double, prediction: Double) =>
-//        println(s"--> label=$label, prediction=$prediction")
-//      }
-//
-//    log.info(results)
-//
-//    val output = "\n=====================================================================\n" +
-//      s"Training data RMSE = ${trainRegressionMetrics.rootMeanSquaredError}\n" +
-//      "=====================================================================\n" +
-//      s"Test data RMSE = ${testRegressionMetrics.rootMeanSquaredError}\n" +
-//      "=====================================================================\n"
-//
-//    log.info(output)
-//    log.info(featureCols)
+    log.info(bestModel)
 
     spark.stop()
   }
