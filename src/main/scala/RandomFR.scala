@@ -13,20 +13,20 @@ import org.apache.spark.sql.Row
 import org.apache.log4j.LogManager
 import org.apache.spark.ml.feature.Imputer
 import org.apache.spark.ml.feature.StandardScaler
+import org.apache.spark.ml.regression.{LinearRegression, DecisionTreeRegressor, RandomForestRegressor, GBTRegressor}
 
-object Main {
+object RandomFR {
 
   case class dataSchema(Year:Int, Month:Int, DayofMonth:Int, DayOfWeek:Int, DepTime:Int,
-                            CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
-                            FlightNum:Int, TailNum: String, ActualElapsedTime:Int, CRSElapsedTime:Int,
-                            AirTime: String, ArrDelay:Double, DepDelay: Int, Origin:String, Dest:String,
-                            Distance: Int, TaxiIn:Int, TaxiOut:Int, Cancelled: Int, CancellationCode:Int,
-                            Diverted: Int, CarrierDelay:Int, WeatherDelay:Int, NASDelay:Int, SecurityDelay:Int,
-                            LateAircraftDelay:Int)
+                        CRSDepTime:Int, ArrTime:Int, CRSArrTime:Int, UniqueCarrier:String,
+                        FlightNum:Int, TailNum: String, ActualElapsedTime:Int, CRSElapsedTime:Int,
+                        AirTime: String, ArrDelay:Double, DepDelay: Int, Origin:String, Dest:String,
+                        Distance: Int, TaxiIn:Int, TaxiOut:Int, Cancelled: Int, CancellationCode:Int,
+                        Diverted: Int, CarrierDelay:Int, WeatherDelay:Int, NASDelay:Int, SecurityDelay:Int,
+                        LateAircraftDelay:Int)
 
   def main(args: Array[String]): Unit = {
 
-    if (args.length > 0) {
       Logger.getLogger("org").setLevel(Level.ERROR)
 
       val spark = SparkSession
@@ -68,12 +68,11 @@ object Main {
         .add("LateAircraftDelay", IntegerType, true)
 
       // READ THE DATASET AND APPLY THE SCHEMA PREDEFINED
-      val datasetPath: String = args(0)
       import spark.implicits._
       val inputDataset = spark.read
         .option("header", "true")
         .schema(customSchema)
-        .csv(datasetPath)
+        .csv("data/2008-95.csv")
         .as[dataSchema]
 
       // FILTERED OUT ALL FLIGHTS THAT WERE CANCELLED
@@ -169,9 +168,8 @@ object Main {
       // TRANSFORM DepTime, CRSDepTime and CRSArrTime TO MINUTES AND FILTER ONLY NECESSARY VARIABLES
       subset4.createOrReplaceTempView("view")
       val subset5 = spark.sql(
-        "select Year_imputed, Month_imputed, DayofMonth_imputed,INT(substring(lpad(DepTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(DepTime_imputed,4,0), 3, 2)) " +
-          "as DepTime_conv,INT(substring(lpad(CRSDepTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(CRSDepTime_imputed,4,0), 3, 2)) as " +
-          "CRSDepTime_conv, INT(substring(lpad(CRSArrTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(CRSArrTime_imputed,4,0), 3, 2)) as " +
+        "select Year_imputed, Month_imputed, DayofMonth_imputed, (DepTime_imputed + CRSDepTime_imputed)/2 as " +
+          "AVGDepTime, INT(substring(lpad(CRSArrTime_imputed,4,0), 1, 2))*60+INT(substring(lpad(CRSArrTime_imputed,4,0), 3, 2)) as " +
           "CRSArrTime_conv,CRSElapsedTime_imputed, label, DepDelay_imputed, Distance_imputed, UniqueCarrierIndex, UniqueCarrier_vector from view"
       )
 
@@ -193,20 +191,18 @@ object Main {
       val scaler = new StandardScaler()
         .setInputCol("features")
         .setOutputCol("scaledFeatures")
-      val linear = new LinearRegression()
-        .setFeaturesCol("scaledFeatures")
+      val algo = new RandomForestRegressor()
         .setLabelCol("label")
-        .setMaxIter(100)
-        .setTol(1E-6)
+        .setFeaturesCol("scaledFeatures")
       val pipeline_model = new Pipeline()
         .setStages(Array(
           assembler,
           scaler,
-          linear))
+          algo))
       val paramGrid = new ParamGridBuilder()
-        .addGrid(linear.regParam, Array(0.1, 0.01))
-        .addGrid(linear.fitIntercept)
-        .addGrid(linear.elasticNetParam, Array(0.0, 0.5, 1.0))
+        .addGrid(algo.numTrees, Seq(3))
+        .addGrid(algo.maxDepth, Seq(4))
+        .addGrid(algo.maxBins, Seq(32))
         .build()
 
       // HYPER-PARAMETER TUNNING THROUGH CROSS VALIDATION TECHNIQUE
@@ -256,7 +252,7 @@ object Main {
       log.info(output)
 
       spark.stop()
-    }
+
   }
 
 }
